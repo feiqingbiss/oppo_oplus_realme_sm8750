@@ -2,8 +2,8 @@ name: Auto Sync Upstream & Trigger Build
 
 on:
   schedule:
-    - cron: '0 */4 * * *'      # 每4小时一次
-  workflow_dispatch:            # 手动触发
+    - cron: '0 */4 * * *'      # 每4小时运行一次
+  workflow_dispatch:            # 支持手动触发
 
 permissions:
   contents: write
@@ -16,7 +16,7 @@ jobs:
       - name: Checkout your fork
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: main                # 如果你的默认分支不是 main，请改为 master 或其他
           fetch-depth: 0
 
       - name: Add upstream remote
@@ -24,7 +24,7 @@ jobs:
           git remote add upstream https://github.com/cctv18/oppo_oplus_realme_sm8750.git
           git fetch upstream
 
-      - name: Merge upstream changes (if any) while preserving auto-sync.yml
+      - name: Merge upstream changes while preserving auto-sync.yml
         run: |
           set +e
           git merge --no-commit --no-ff upstream/main
@@ -38,7 +38,9 @@ jobs:
             else
               echo "New commits from upstream, preserving auto-sync.yml..."
               SELF_FILE=".github/workflows/auto-sync.yml"
-              [ -f "$SELF_FILE" ] && git checkout HEAD -- "$SELF_FILE"
+              if [ -f "$SELF_FILE" ]; then
+                git checkout HEAD -- "$SELF_FILE"
+              fi
               git commit -m "Auto-merge upstream changes (preserve auto-sync.yml)"
               git push origin main
             fi
@@ -52,8 +54,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # 无论上游是否有更新，都触发编译，并明确传递您的编译选项
-          gh workflow run fastbuild_6.6.89.yml --ref main \
+          gh workflow run fastbuild_6.6.89.yml \
+            --repo "${{ github.repository }}" \
+            --ref main \
             -f ksu_type="resukisu" \
             -f susfs_enable="false" \
             -f kpm_enable="false" \
