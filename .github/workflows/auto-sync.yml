@@ -2,8 +2,8 @@ name: Auto Sync Upstream & Trigger Build
 
 on:
   schedule:
-    - cron: '0 */4 * * *'
-  workflow_dispatch:
+    - cron: '0 */4 * * *'      # 每4小时一次
+  workflow_dispatch:            # 手动触发
 
 permissions:
   contents: write
@@ -24,7 +24,7 @@ jobs:
           git remote add upstream https://github.com/cctv18/oppo_oplus_realme_sm8750.git
           git fetch upstream
 
-      - name: Merge upstream changes while preserving auto-sync.yml
+      - name: Merge upstream changes (if any) while preserving auto-sync.yml
         run: |
           set +e
           git merge --no-commit --no-ff upstream/main
@@ -33,15 +33,14 @@ jobs:
 
           if [ $MERGE_EXIT_CODE -eq 0 ]; then
             if git diff --cached --quiet; then
-              echo "No changes from upstream."
-              echo "has_new_commits=false" >> $GITHUB_ENV
+              echo "No changes from upstream, skipping commit."
               git merge --abort 2>/dev/null || true
             else
-              echo "Upstream has new commits. Preserving auto-sync.yml..."
+              echo "New commits from upstream, preserving auto-sync.yml..."
               SELF_FILE=".github/workflows/auto-sync.yml"
               [ -f "$SELF_FILE" ] && git checkout HEAD -- "$SELF_FILE"
-              # 注意：此时还未提交，我们稍后会修改 fastbuild_6.6.89.yml
-              echo "has_new_commits=true" >> $GITHUB_ENV
+              git commit -m "Auto-merge upstream changes (preserve auto-sync.yml)"
+              git push origin main
             fi
           else
             echo "Merge conflict, aborting."
@@ -49,57 +48,22 @@ jobs:
             exit 1
           fi
 
-      - name: Set your preferred defaults in fastbuild_6.6.89.yml
-        if: env.has_new_commits == 'true'
-        run: |
-          FILE=".github/workflows/fastbuild_6.6.89.yml"
-          if [ -f "$FILE" ]; then
-            echo "Modifying default values in $FILE according to your preferences..."
-
-            # ksu_type: default resukisu
-            sed -i 's/^\(\s*\)default: '"'"'.*'"'"'\(\s*#.*ksu_type\)/\1default: '"'resukisu'"'\2/' "$FILE"
-            # susfs_enable: default false
-            sed -i 's/^\(\s*\)default: true\(\s*#.*susfs_enable\)/\1default: false\2/' "$FILE"
-            # kpm_enable: default false (已经是false，但确保)
-            sed -i 's/^\(\s*\)default: '"'"'.*'"'"'\(\s*#.*kpm_enable\)/\1default: '"'false'"'\2/' "$FILE"
-            # lz4_enable: default true
-            sed -i 's/^\(\s*\)default: false\(\s*#.*lz4_enable\)/\1default: true\2/' "$FILE"
-            # lz4kd_enable: default false (已经是false)
-            # bbr_enable: default false
-            sed -i 's/^\(\s*\)default: '"'"'.*'"'"'\(\s*#.*bbr_enable\)/\1default: '"'false'"'\2/' "$FILE"
-            # better_net: default false
-            sed -i 's/^\(\s*\)default: true\(\s*#.*better_net\)/\1default: false\2/' "$FILE"
-            # adios_enable: default true
-            sed -i 's/^\(\s*\)default: false\(\s*#.*adios_enable\)/\1default: true\2/' "$FILE"
-            # rekernel_enable: default true
-            sed -i 's/^\(\s*\)default: false\(\s*#.*rekernel_enable\)/\1default: true\2/' "$FILE"
-            # baseband_guard: default true
-            sed -i 's/^\(\s*\)default: false\(\s*#.*baseband_guard\)/\1default: true\2/' "$FILE"
-            # ccache_update, ccache_debug, kernel_suffix 保持原默认值即可
-
-            echo "Default values updated."
-            # 将修改加入暂存区
-            git add "$FILE"
-          else
-            echo "Warning: $FILE not found, skipping default modification."
-          fi
-
-      - name: Commit and push changes
-        if: env.has_new_commits == 'true'
-        run: |
-          # 查看是否有新的修改（包括合并和默认值修改）
-          if git diff --cached --quiet; then
-            echo "No changes to commit after all."
-            echo "has_new_commits=false" >> $GITHUB_ENV
-          else
-            git commit -m "Auto-merge upstream + set preferred defaults"
-            git push origin main
-          fi
-
-      - name: Trigger kernel build (now with your defaults)
-        if: env.has_new_commits == 'true'
+      - name: Trigger kernel build (always, with your preferred inputs)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # 无需传递任何 -f 参数，因为工作流的默认值已经是您的偏好
-          gh workflow run fastbuild_6.6.89.yml --ref main
+          # 无论上游是否有更新，都触发编译，并明确传递您的编译选项
+          gh workflow run fastbuild_6.6.89.yml --ref main \
+            -f ksu_type="resukisu" \
+            -f susfs_enable="false" \
+            -f kpm_enable="false" \
+            -f lz4_enable="true" \
+            -f lz4kd_enable="false" \
+            -f bbr_enable="false" \
+            -f better_net="false" \
+            -f adios_enable="true" \
+            -f rekernel_enable="true" \
+            -f baseband_guard="true" \
+            -f ccache_update="false" \
+            -f ccache_debug="false" \
+            -f kernel_suffix=""
