@@ -2,12 +2,12 @@ name: Auto Sync Upstream & Trigger Build
 
 on:
   schedule:
-    - cron: '0 */4 * * *'      # 每4小时同步一次，可调整
-  workflow_dispatch:            # 手动触发
+    - cron: '0 */4 * * *'
+  workflow_dispatch:
 
 permissions:
-  contents: write               # 用于推送同步后的代码
-  actions: write                # 用于触发编译工作流
+  contents: write
+  actions: write
 
 jobs:
   sync-and-trigger:
@@ -16,7 +16,7 @@ jobs:
       - name: Checkout your fork
         uses: actions/checkout@v4
         with:
-          ref: main                # 替换为您的默认分支名（如 master）
+          ref: main
           fetch-depth: 0
 
       - name: Add upstream remote
@@ -24,53 +24,82 @@ jobs:
           git remote add upstream https://github.com/cctv18/oppo_oplus_realme_sm8750.git
           git fetch upstream
 
-      - name: Merge upstream changes while preserving only auto-sync.yml
+      - name: Merge upstream changes while preserving auto-sync.yml
         run: |
-          # 合并上游 main 分支到本地 main（不自动提交）
+          set +e
           git merge --no-commit --no-ff upstream/main
+          MERGE_EXIT_CODE=$?
+          set -e
 
-          # 仅保护 auto-sync.yml 这个文件（您自己创建的工作流）
-          # 其他所有文件（包括 fastbuild_6.6.89.yml）都将被上游覆盖
-          SELF_FILE=".github/workflows/auto-sync.yml"
-          if [ -f "$SELF_FILE" ]; then
-            echo "Preserving local version of $SELF_FILE"
-            git checkout HEAD -- "$SELF_FILE"
+          if [ $MERGE_EXIT_CODE -eq 0 ]; then
+            if git diff --cached --quiet; then
+              echo "No changes from upstream."
+              echo "has_new_commits=false" >> $GITHUB_ENV
+              git merge --abort 2>/dev/null || true
+            else
+              echo "Upstream has new commits. Preserving auto-sync.yml..."
+              SELF_FILE=".github/workflows/auto-sync.yml"
+              [ -f "$SELF_FILE" ] && git checkout HEAD -- "$SELF_FILE"
+              # 注意：此时还未提交，我们稍后会修改 fastbuild_6.6.89.yml
+              echo "has_new_commits=true" >> $GITHUB_ENV
+            fi
           else
-            echo "Warning: $SELF_FILE not found locally, skipping"
-          fi
-
-          # 检查是否有实际变更
-          if git diff --cached --quiet; then
-            echo "No changes from upstream."
-            echo "has_new_commits=false" >> $GITHUB_ENV
+            echo "Merge conflict, aborting."
             git merge --abort
-          else
-            echo "New commits detected, committing merge..."
-            git commit -m "Auto-merge upstream changes (preserve auto-sync.yml)"
-            echo "has_new_commits=true" >> $GITHUB_ENV
+            exit 1
           fi
 
-      - name: Push changes to your fork
+      - name: Set your preferred defaults in fastbuild_6.6.89.yml
         if: env.has_new_commits == 'true'
-        run: git push origin main
+        run: |
+          FILE=".github/workflows/fastbuild_6.6.89.yml"
+          if [ -f "$FILE" ]; then
+            echo "Modifying default values in $FILE according to your preferences..."
 
-      - name: Trigger kernel build with your preferences
+            # ksu_type: default resukisu
+            sed -i 's/^\(\s*\)default: '"'"'.*'"'"'\(\s*#.*ksu_type\)/\1default: '"'resukisu'"'\2/' "$FILE"
+            # susfs_enable: default false
+            sed -i 's/^\(\s*\)default: true\(\s*#.*susfs_enable\)/\1default: false\2/' "$FILE"
+            # kpm_enable: default false (已经是false，但确保)
+            sed -i 's/^\(\s*\)default: '"'"'.*'"'"'\(\s*#.*kpm_enable\)/\1default: '"'false'"'\2/' "$FILE"
+            # lz4_enable: default true
+            sed -i 's/^\(\s*\)default: false\(\s*#.*lz4_enable\)/\1default: true\2/' "$FILE"
+            # lz4kd_enable: default false (已经是false)
+            # bbr_enable: default false
+            sed -i 's/^\(\s*\)default: '"'"'.*'"'"'\(\s*#.*bbr_enable\)/\1default: '"'false'"'\2/' "$FILE"
+            # better_net: default false
+            sed -i 's/^\(\s*\)default: true\(\s*#.*better_net\)/\1default: false\2/' "$FILE"
+            # adios_enable: default true
+            sed -i 's/^\(\s*\)default: false\(\s*#.*adios_enable\)/\1default: true\2/' "$FILE"
+            # rekernel_enable: default true
+            sed -i 's/^\(\s*\)default: false\(\s*#.*rekernel_enable\)/\1default: true\2/' "$FILE"
+            # baseband_guard: default true
+            sed -i 's/^\(\s*\)default: false\(\s*#.*baseband_guard\)/\1default: true\2/' "$FILE"
+            # ccache_update, ccache_debug, kernel_suffix 保持原默认值即可
+
+            echo "Default values updated."
+            # 将修改加入暂存区
+            git add "$FILE"
+          else
+            echo "Warning: $FILE not found, skipping default modification."
+          fi
+
+      - name: Commit and push changes
+        if: env.has_new_commits == 'true'
+        run: |
+          # 查看是否有新的修改（包括合并和默认值修改）
+          if git diff --cached --quiet; then
+            echo "No changes to commit after all."
+            echo "has_new_commits=false" >> $GITHUB_ENV
+          else
+            git commit -m "Auto-merge upstream + set preferred defaults"
+            git push origin main
+          fi
+
+      - name: Trigger kernel build (now with your defaults)
         if: env.has_new_commits == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # 根据您的偏好传入所有编译参数
-          gh workflow run fastbuild_6.6.89.yml --ref main \
-            -f ksu_type="resukisu" \
-            -f susfs_enable="false" \
-            -f kpm_enable="false" \
-            -f lz4_enable="true" \
-            -f lz4kd_enable="false" \
-            -f bbr_enable="false" \
-            -f better_net="false" \
-            -f adios_enable="true" \
-            -f rekernel_enable="true" \
-            -f baseband_guard="true" \
-            -f ccache_update="false" \
-            -f ccache_debug="false" \
-            -f kernel_suffix=""
+          # 无需传递任何 -f 参数，因为工作流的默认值已经是您的偏好
+          gh workflow run fastbuild_6.6.89.yml --ref main
