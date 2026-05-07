@@ -1,0 +1,76 @@
+name: Auto Sync Upstream & Trigger Build
+
+on:
+  schedule:
+    - cron: '0 */4 * * *'      # 每4小时同步一次，可调整
+  workflow_dispatch:            # 手动触发
+
+permissions:
+  contents: write               # 用于推送同步后的代码
+  actions: write                # 用于触发编译工作流
+
+jobs:
+  sync-and-trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout your fork
+        uses: actions/checkout@v4
+        with:
+          ref: main                # 替换为您的默认分支名（如 master）
+          fetch-depth: 0
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/cctv18/oppo_oplus_realme_sm8750.git
+          git fetch upstream
+
+      - name: Merge upstream changes while preserving only auto-sync.yml
+        run: |
+          # 合并上游 main 分支到本地 main（不自动提交）
+          git merge --no-commit --no-ff upstream/main
+
+          # 仅保护 auto-sync.yml 这个文件（您自己创建的工作流）
+          # 其他所有文件（包括 fastbuild_6.6.89.yml）都将被上游覆盖
+          SELF_FILE=".github/workflows/auto-sync.yml"
+          if [ -f "$SELF_FILE" ]; then
+            echo "Preserving local version of $SELF_FILE"
+            git checkout HEAD -- "$SELF_FILE"
+          else
+            echo "Warning: $SELF_FILE not found locally, skipping"
+          fi
+
+          # 检查是否有实际变更
+          if git diff --cached --quiet; then
+            echo "No changes from upstream."
+            echo "has_new_commits=false" >> $GITHUB_ENV
+            git merge --abort
+          else
+            echo "New commits detected, committing merge..."
+            git commit -m "Auto-merge upstream changes (preserve auto-sync.yml)"
+            echo "has_new_commits=true" >> $GITHUB_ENV
+          fi
+
+      - name: Push changes to your fork
+        if: env.has_new_commits == 'true'
+        run: git push origin main
+
+      - name: Trigger kernel build with your preferences
+        if: env.has_new_commits == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 根据您的偏好传入所有编译参数
+          gh workflow run fastbuild_6.6.89.yml --ref main \
+            -f ksu_type="resukisu" \
+            -f susfs_enable="false" \
+            -f kpm_enable="false" \
+            -f lz4_enable="true" \
+            -f lz4kd_enable="false" \
+            -f bbr_enable="false" \
+            -f better_net="false" \
+            -f adios_enable="true" \
+            -f rekernel_enable="true" \
+            -f baseband_guard="true" \
+            -f ccache_update="false" \
+            -f ccache_debug="false" \
+            -f kernel_suffix=""
