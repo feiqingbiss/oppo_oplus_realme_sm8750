@@ -2,8 +2,8 @@ name: Auto Sync Upstream & Trigger Build
 
 on:
   schedule:
-    - cron: '0 */12 * * *'      # 每12小时运行一次
-  workflow_dispatch:            # 支持手动触发
+    - cron: '0 0,12 * * *'   # 每天 UTC 0:00 和 12:00 → 北京时间 8:00 和 20:00
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -16,13 +16,18 @@ jobs:
       - name: Checkout your fork
         uses: actions/checkout@v4
         with:
-          ref: main                # 如果你的默认分支不是 main，请改为 master 或其他
+          ref: main
           fetch-depth: 0
 
       - name: Add upstream remote
         run: |
           git remote add upstream https://github.com/cctv18/oppo_oplus_realme_sm8750.git
           git fetch upstream
+
+      - name: Configure git user (for potential merge commits)
+        run: |
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
 
       - name: Merge upstream changes while preserving auto-sync.yml
         run: |
@@ -45,9 +50,9 @@ jobs:
               git push origin main
             fi
           else
-            echo "Merge conflict, aborting."
-            git merge --abort
-            exit 1
+            echo "Merge failed with exit code $MERGE_EXIT_CODE"
+            git merge --abort 2>/dev/null || true
+            exit $MERGE_EXIT_CODE
           fi
 
       - name: Trigger kernel build (always, with your preferred inputs)
