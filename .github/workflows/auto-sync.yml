@@ -2,7 +2,7 @@ name: Auto Sync Upstream & Trigger Build
 
 on:
   schedule:
-    - cron: '0 0,12 * * *'   # 每天 UTC 0:00 和 12:00 → 北京时间 8:00 和 20:00
+    - cron: '0 0,12 * * *'   # UTC 0:00 & 12:00 → 北京时间 8:00 & 20:00
   workflow_dispatch:
 
 permissions:
@@ -18,18 +18,21 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
+          # 使用 PAT 确保能读取所有内容（可选）
+          token: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Add upstream remote
         run: |
           git remote add upstream https://github.com/cctv18/oppo_oplus_realme_sm8750.git
           git fetch upstream
 
-      - name: Configure git user (for potential merge commits)
+      - name: Configure git user
         run: |
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git config --global user.name "github-actions[bot]"
 
       - name: Merge upstream changes while preserving auto-sync.yml
+        id: merge
         run: |
           set +e
           git merge --no-commit --no-ff upstream/main
@@ -40,20 +43,25 @@ jobs:
             if git diff --cached --quiet; then
               echo "No changes from upstream, skipping commit."
               git merge --abort 2>/dev/null || true
+              echo "has_new_commits=false" >> $GITHUB_OUTPUT
             else
               echo "New commits from upstream, preserving auto-sync.yml..."
-              SELF_FILE=".github/workflows/auto-sync.yml"
-              if [ -f "$SELF_FILE" ]; then
-                git checkout HEAD -- "$SELF_FILE"
-              fi
+              git checkout HEAD -- .github/workflows/auto-sync.yml
               git commit -m "Auto-merge upstream changes (preserve auto-sync.yml)"
-              git push origin main
+              echo "has_new_commits=true" >> $GITHUB_OUTPUT
             fi
           else
             echo "Merge failed with exit code $MERGE_EXIT_CODE"
             git merge --abort 2>/dev/null || true
-            exit $MERGE_EXIT_CODE
+            exit 1
           fi
+
+      - name: Push changes to your fork using PAT
+        if: steps.merge.outputs.has_new_commits == 'true'
+        env:
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          git push https://x-access-token:${PAT_TOKEN}@github.com/${{ github.repository }}.git main
 
       - name: Trigger kernel build (always, with your preferred inputs)
         env:
