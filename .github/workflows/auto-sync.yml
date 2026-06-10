@@ -3,7 +3,7 @@ name: Auto Sync Upstream & Trigger Build
 on:
   schedule:
     - cron: '0 0,12 * * *'   # UTC 0:00 & 12:00 → 北京时间 8:00 & 20:00
-  workflow_dispatch:
+  workflow_dispatch:            # 手动触发
 
 permissions:
   contents: write
@@ -13,12 +13,12 @@ jobs:
   sync-and-trigger:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout your fork
+      - name: Checkout your fork (using PAT for full access)
         uses: actions/checkout@v4
         with:
           ref: main
           fetch-depth: 0
-          token: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.PAT_TOKEN }}   # 使用 PAT 检出，确保后续推送权限
 
       - name: Add upstream remote
         run: |
@@ -29,6 +29,14 @@ jobs:
         run: |
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git config --global user.name "github-actions[bot]"
+
+      # (可选) 验证 PAT_TOKEN 是否正确读取，仅用于调试，可安全删除
+      - name: Debug PAT_TOKEN prefix
+        if: true   # 改为 true 可启用调试
+        env:
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          echo "PAT_TOKEN starts with: ${PAT_TOKEN:0:10}..."
 
       - name: Merge upstream changes while preserving auto-sync.yml
         id: merge
@@ -62,7 +70,7 @@ jobs:
         run: |
           git push https://x-access-token:${PAT_TOKEN}@github.com/${{ github.repository }}.git main
 
-      - name: Trigger kernel build (always, with your preferred inputs)
+      - name: Trigger kernel build using PAT (fixes 401 error)
         env:
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
