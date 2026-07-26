@@ -38,7 +38,7 @@ jobs:
             exit 1
           fi
 
-      # ========== 使用 git clone（OAuth2 格式） ==========
+      # ========== 使用 git clone（PAT） ==========
       - name: Checkout repository using git clone with PAT
         env:
           PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
@@ -84,15 +84,13 @@ jobs:
             exit 1
           fi
 
-      # ========== 推送更改到您的 fork（使用 OAuth2 格式） ==========
-      - name: Push changes to your fork using PAT
+      # ========== 推送更改到您的 fork（使用 GITHUB_TOKEN） ==========
+      - name: Push changes to your fork using GITHUB_TOKEN
         if: steps.merge.outputs.has_new_commits == 'true'
-        env:
-          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
-          git push https://oauth2:${PAT_TOKEN}@github.com/${{ github.repository }}.git main
+          git push https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git main
 
-      # ========== 触发内核构建工作流 ==========
+      # ========== 触发内核构建工作流（使用 PAT） ==========
       - name: Trigger kernel build using PAT
         env:
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
