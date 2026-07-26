@@ -13,7 +13,7 @@ jobs:
   sync-and-trigger:
     runs-on: ubuntu-latest
     steps:
-      # ========== 验证 PAT_TOKEN 是否存在且有效 ==========
+      # ========== 验证 PAT_TOKEN 是否存在 ==========
       - name: Check if PAT_TOKEN is set
         env:
           PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
@@ -25,6 +25,7 @@ jobs:
             echo "✅ PAT_TOKEN is set with length ${#PAT_TOKEN}"
           fi
 
+      # ========== 测试 PAT_TOKEN 能否访问仓库 ==========
       - name: Test PAT_TOKEN with git ls-remote
         env:
           PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
@@ -37,20 +38,21 @@ jobs:
             exit 1
           fi
 
-      # ========== 正式检出代码（使用 PAT） ==========
-      - name: Checkout your fork (using PAT for full access)
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          fetch-depth: 0
-          token: ${{ secrets.PAT_TOKEN }}
+      # ========== 使用 git clone（替代 actions/checkout） ==========
+      - name: Checkout repository using git clone with PAT
+        env:
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          git clone https://x-access-token:${PAT_TOKEN}@github.com/${{ github.repository }}.git .
+          git checkout main
 
-      # ========== 添加上游仓库 ==========
+      # ========== 添加上游远程仓库 ==========
       - name: Add upstream remote
         run: |
           git remote add upstream https://github.com/cctv18/oppo_oplus_realme_sm8750.git
           git fetch upstream
 
+      # ========== 配置 Git 用户信息 ==========
       - name: Configure git user
         run: |
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -90,7 +92,7 @@ jobs:
         run: |
           git push https://x-access-token:${PAT_TOKEN}@github.com/${{ github.repository }}.git main
 
-      # ========== 触发内核构建 ==========
+      # ========== 触发内核构建工作流 ==========
       - name: Trigger kernel build using PAT
         env:
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
