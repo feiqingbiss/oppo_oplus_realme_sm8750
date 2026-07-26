@@ -28,11 +28,10 @@ jobs:
         env:
           PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
-          echo "Testing token against repository..."
           if git ls-remote https://oauth2:${PAT_TOKEN}@github.com/${{ github.repository }}.git HEAD; then
             echo "✅ Token is valid and has read access."
           else
-            echo "❌ ERROR: Token failed to access repository. Please check token permissions or regenerate it."
+            echo "❌ ERROR: Token failed to access repository."
             exit 1
           fi
 
@@ -78,11 +77,14 @@ jobs:
             exit 1
           fi
 
-      # ========== 推送使用 GITHUB_TOKEN + oauth2 格式 ==========
-      - name: Push changes to your fork using GITHUB_TOKEN (oauth2)
+      # ========== 使用 gh 设置 git 认证，然后推送 ==========
+      - name: Push changes using gh credential helper
         if: steps.merge.outputs.has_new_commits == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
-          git push https://oauth2:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git main
+          gh auth setup-git
+          git push origin main
 
       - name: Trigger kernel build using PAT
         env:
