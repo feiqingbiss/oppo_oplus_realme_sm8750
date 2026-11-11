@@ -91,7 +91,7 @@ jobs:
           gh workflow run fastbuild_6.6.89.yml \
             --repo "${{ github.repository }}" \
             --ref main \
-            -f ksu_type="resukisu" \
+            -f ksu_type="bakasu" \
             -f susfs_enable="false" \
             -f kpm_enable="false" \
             -f lz4_enable="true" \
